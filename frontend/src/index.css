@@ -1,0 +1,90 @@
+@import "tailwindcss";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-bg: oklch(1 0 0);
+  --color-surface: oklch(0.975 0.006 230);
+  --color-surface-2: oklch(0.96 0.008 230);
+  --color-border: oklch(0.9 0.01 230);
+  --color-ink: oklch(0.2 0.02 230);
+  --color-muted: oklch(0.48 0.02 230);
+  --color-primary: oklch(0.55 0.13 230);
+  --color-primary-hover: oklch(0.48 0.14 230);
+  --color-danger: oklch(0.5 0.18 25);
+
+  --color-status-todo-bg: oklch(0.95 0.01 250);
+  --color-status-todo-text: oklch(0.42 0.03 250);
+  --color-status-progress-bg: oklch(0.95 0.05 75);
+  --color-status-progress-text: oklch(0.45 0.14 75);
+  --color-status-done-bg: oklch(0.94 0.06 150);
+  --color-status-done-text: oklch(0.4 0.13 150);
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+:root.dark {
+  --color-bg: oklch(0.16 0.012 230);
+  --color-surface: oklch(0.21 0.014 230);
+  --color-surface-2: oklch(0.26 0.016 230);
+  --color-border: oklch(0.34 0.018 230);
+  --color-ink: oklch(0.94 0.006 230);
+  --color-muted: oklch(0.68 0.015 230);
+  --color-primary: oklch(0.62 0.14 230);
+  --color-primary-hover: oklch(0.72 0.15 230);
+  --color-danger: oklch(0.62 0.19 25);
+
+  --color-status-todo-bg: oklch(0.3 0.02 250);
+  --color-status-todo-text: oklch(0.82 0.03 250);
+  --color-status-progress-bg: oklch(0.32 0.08 75);
+  --color-status-progress-text: oklch(0.85 0.1 75);
+  --color-status-done-bg: oklch(0.3 0.09 150);
+  --color-status-done-text: oklch(0.82 0.11 150);
+
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    transition:
+      background-color 150ms,
+      color 150ms;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  button:not(:disabled),
+  select:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  select:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
