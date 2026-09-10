@@ -1,0 +1,23 @@
+# .NET
+bin/
+obj/
+*.user
+
+# IDE
+.vs/
+.idea/
+*.suo
+
+# Frontend (Fase 6)
+node_modules/
+frontend/dist/
+frontend/build/
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
