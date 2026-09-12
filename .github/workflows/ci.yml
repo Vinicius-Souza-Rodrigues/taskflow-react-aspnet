@@ -55,8 +55,36 @@ jobs:
         working-directory: backend
         run: dotnet test TaskFlow.slnx --no-build --configuration Release
 
-  build-image:
-    needs: build-and-test
+  frontend-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+  build-images:
+    needs: [build-and-test, frontend-build]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -67,4 +95,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Build API image
-        run: docker build -f backend/docker/api.Dockerfile -t taskflow-api:${{ github.sha }} backend/
+        run: docker build -f backend/Dockerfile -t taskflow-api:${{ github.sha }} backend/
+
+      - name: Build Nginx image
+        run: docker build -f nginx/Dockerfile -t taskflow-nginx:${{ github.sha }} .

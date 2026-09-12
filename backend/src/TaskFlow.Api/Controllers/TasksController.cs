@@ -1,9 +1,14 @@
+using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using TaskFlow.Api.Contracts.Requests;
 using TaskFlow.Api.Contracts.Responses;
 using TaskFlow.Api.Mapping;
-using TaskFlow.Domain;
-using TaskFlow.Domain.ValueObjects;
+using TaskFlow.Application.Common;
+using TaskFlow.Application.Tasks.Commands.CreateTask;
+using TaskFlow.Application.Tasks.Commands.DeleteTask;
+using TaskFlow.Application.Tasks.Commands.UpdateTask;
+using TaskFlow.Application.Tasks.Queries.GetTaskById;
+using TaskFlow.Application.Tasks.Queries.ListTasks;
 
 namespace TaskFlow.Api.Controllers;
 
@@ -11,100 +16,67 @@ namespace TaskFlow.Api.Controllers;
 [Route("api/tasks")]
 public class TasksController : ControllerBase
 {
-    private readonly ITaskRepository _taskRepository;
+    private readonly IMediator _mediator;
 
-    public TasksController(ITaskRepository taskRepository)
+    public TasksController(IMediator mediator)
     {
-        _taskRepository = taskRepository;
+        _mediator = mediator;
     }
 
     [HttpPost]
     public async Task<ActionResult<TaskResponse>> Create(CreateTaskRequest request)
     {
-        var notification = new Notification();
-        var status = ResolveOptionalStatus(request.Status, notification);
-        var title = TaskTitle.Create(request.Title, notification);
-        var description = TaskDescription.Create(request.Description, notification);
+        var result = await _mediator.Send(new CreateTaskCommand(request.Title, request.Description, request.Status));
 
-        if (!notification.IsValid)
-            return BadRequest(new { errors = notification.Errors });
+        if (!result.IsSuccess)
+            return BadRequest(new { errors = result.Errors });
 
-        var task = TaskItem.Create(title!, description!, status);
-        await _taskRepository.AddAsync(task);
-        await _taskRepository.SaveChangesAsync();
-
+        var task = result.Value!;
         return CreatedAtAction(nameof(GetById), new { id = task.Id }, TaskResponseMapper.ToResponse(task));
     }
 
     [HttpGet]
     public async Task<ActionResult<IEnumerable<TaskResponse>>> GetAll()
     {
-        var tasks = await _taskRepository.ListAllAsync();
+        var tasks = await _mediator.Send(new ListTasksQuery());
         return Ok(tasks.Select(TaskResponseMapper.ToResponse));
     }
 
     [HttpGet("{id:int}")]
     public async Task<ActionResult<TaskResponse>> GetById(int id)
     {
-        var task = await _taskRepository.FindByIdAsync(id);
-        if (task is null)
-            return NotFound();
+        var result = await _mediator.Send(new GetTaskByIdQuery(id));
 
-        return Ok(TaskResponseMapper.ToResponse(task));
+        return result.Status switch
+        {
+            ResultStatus.Success => Ok(TaskResponseMapper.ToResponse(result.Value!)),
+            _ => NotFound()
+        };
     }
 
     [HttpPut("{id:int}")]
     public async Task<ActionResult<TaskResponse>> Update(int id, UpdateTaskRequest request)
     {
-        var task = await _taskRepository.FindByIdAsync(id);
-        if (task is null)
-            return NotFound();
+        var result = await _mediator.Send(new UpdateTaskCommand(id, request.Title, request.Description, request.Status));
 
-        var notification = new Notification();
-        var status = ResolveRequiredStatus(request.Status, notification);
-        var title = TaskTitle.Create(request.Title, notification);
-        var description = TaskDescription.Create(request.Description, notification);
-
-        if (!notification.IsValid)
-            return BadRequest(new { errors = notification.Errors });
-
-        task.Update(title!, description!, status);
-        await _taskRepository.SaveChangesAsync();
-
-        return Ok(TaskResponseMapper.ToResponse(task));
+        return result.Status switch
+        {
+            ResultStatus.Success => Ok(TaskResponseMapper.ToResponse(result.Value!)),
+            ResultStatus.NotFound => NotFound(),
+            _ => BadRequest(new { errors = result.Errors })
+        };
     }
 
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id)
     {
-        var task = await _taskRepository.FindByIdAsync(id);
-        if (task is null)
-            return NotFound();
+        var result = await _mediator.Send(new DeleteTaskCommand(id));
 
-        await _taskRepository.RemoveAsync(task);
-        await _taskRepository.SaveChangesAsync();
-
-        return NoContent();
-    }
-
-    private static TaskItemStatus ResolveOptionalStatus(string? value, Notification notification)
-    {
-        if (string.IsNullOrEmpty(value))
-            return TaskItemStatus.Todo;
-
-        if (TaskStatusMapper.TryParse(value, out var status))
-            return status;
-
-        notification.AddError($"Invalid status: {value}");
-        return TaskItemStatus.Todo;
-    }
-
-    private static TaskItemStatus ResolveRequiredStatus(string? value, Notification notification)
-    {
-        if (TaskStatusMapper.TryParse(value, out var status))
-            return status;
-
-        notification.AddError($"Invalid status: {value}");
-        return TaskItemStatus.Todo;
+        return result.Status switch
+        {
+            ResultStatus.Success => NoContent(),
+            ResultStatus.NotFound => NotFound(),
+            _ => BadRequest(new { errors = result.Errors })
+        };
     }
 }

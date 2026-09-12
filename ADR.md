@@ -1,6 +1,7 @@
 # ADR — TaskFlow
 
-**Data:** 2026-09-09
+**Data:** 2026-09-09 (atualizado 2026-09-11)
+**Versão:** 1.1
 **Baseado no PRD:** v1.0
 
 ---
@@ -41,6 +42,14 @@ output previsível, consumidor solo. Não há linguagem de domínio rica que jus
 nem integração frágil ou comportamento crítico que exija TDD como eixo principal — o risco
 real do projeto está na infraestrutura (Fases 2-7), não na lógica de negócio (Fase 0-1).
 
+**Atualização (2026-09-11):** a pedido explícito do usuário, para fins de aprendizado, o
+backend foi refeito usando as ferramentas **táticas** de DDD por completo (Aggregate
+Root, Domain Events, camada de Application com CQRS via MediatR) — ver
+`DECISIONS.md`. Isso não muda a avaliação acima: o domínio continua simples o bastante
+para não justificar a parte **estratégica** do DDD (Bounded Context, Aggregates com
+invariante cruzando entidades) — essa parte foi deliberadamente descartada, não
+esquecida.
+
 **Postura de teste (projeção para o Roadmap):** smoke tests que confirmam o fluxo
 principal (CRUD completo respondendo com os status HTTP corretos), sem gate
 vermelho-verde bloqueando merge na `main`. A partir da Fase 5 (CI/CD) esses smoke tests
@@ -61,6 +70,7 @@ passam a rodar automaticamente a cada push, mas continuam informativos, não blo
 | Orquestração local | Docker Compose | Objetivo explícito de aprendizado — Fase 3 |
 | CI/CD | GitHub Actions | Repositório já está no GitHub; sem custo/infra extra para hospedar CI |
 | Testes automatizados | xUnit | Padrão atual do template `dotnet new` para projetos .NET novos |
+| Mediator/CQRS | MediatR | Padrão de mercado para Commands/Queries + dispatch de Domain Events em .NET; evita reinventar um dispatcher próprio (ver DECISIONS.md) |
 | Frontend (fase futura) | React | Escolha explícita do usuário (identidade do repositório) — entra na Fase 5, depois da API estável |
 | Prototipagem de UI (frontend) | Claude Design (canvas de design) | Telas do React (Fase 5) são prototipadas visualmente antes de virar código — decisão do usuário, evita implementar UI às cegas |
 | Observabilidade (fase futura) | Grafana (+ stack de métricas a decidir na Fase 6) | Mencionado pelo usuário como melhoria futura; stack exata (Prometheus etc.) fica em aberto até a Fase 6 |
@@ -81,6 +91,9 @@ passam a rodar automaticamente a cada push, mas continuam informativos, não blo
 | GUID como chave primária | Sem necessidade de geração distribuída de IDs neste escopo; inteiro autoincremento é mais simples e suficiente |
 | CI/CD já na Fase 0 (walking skeleton "clássico") | O template padrão de bootstrap sugere CI/CD e deploy já no esqueleto inicial; aqui isso foi deliberadamente adiado para a Fase 4, porque o objetivo pedagógico do projeto é aprender cada peça de infra separadamente, uma fase de cada vez (ver DECISIONS.md) |
 | Manter Docker isolado numa fase própria (não Fase 0) | Descartado a pedido do usuário: praticidade do ambiente de dev (evitar instalar .NET SDK/PostgreSQL direto no Windows) superou o valor pedagógico de isolar Docker numa fase única — ver DECISIONS.md |
+| Dispatcher de Domain Events feito à mão (sem lib) | Reinventar um mini-mediator só pra 3 eventos com 1 handler cada é esforço sem ganho — MediatR já é o padrão testado do mercado .NET pra isso |
+| Bounded Contexts / Aggregates com invariante cruzando entidades (DDD estratégico) | Só existe uma entidade e um contexto (Task) — aplicar a parte estratégica do DDD aqui seria puro over-engineering sem nenhum problema real pra resolver |
+| Domain Events implementando `MediatR.INotification` diretamente | Manteria o Domain dependente de um framework externo; em vez disso `IDomainEvent` é um marcador puro, e só a Application (via `DomainEventNotification<T>`) conhece o MediatR |
 
 ---
 

@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using TaskFlow.Application.Common;
+using TaskFlow.Application.Tasks.Commands.CreateTask;
 using TaskFlow.Domain;
 using TaskFlow.Infra;
 
@@ -15,6 +17,8 @@ builder.Services.AddOpenApi();
 builder.Services.AddDbContext<TaskFlowDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 builder.Services.AddScoped<ITaskRepository, TaskRepository>();
+builder.Services.AddScoped<IDomainEventDispatcher, DomainEventDispatcher>();
+builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(CreateTaskCommand).Assembly));
 
 builder.Services.AddCors(options =>
     options.AddPolicy(FrontendCorsPolicy, policy =>

@@ -1,6 +1,6 @@
 using TaskFlow.Domain;
 
-namespace TaskFlow.Api.Mapping;
+namespace TaskFlow.Application.Tasks;
 
 public static class TaskStatusMapper
 {
@@ -30,4 +30,25 @@ public static class TaskStatusMapper
         TaskItemStatus.Done => "DONE",
         _ => throw new InvalidOperationException($"Unmapped status: {status}")
     };
+
+    public static TaskItemStatus ResolveOptional(string? value, Notification notification)
+    {
+        if (string.IsNullOrEmpty(value))
+            return TaskItemStatus.Todo;
+
+        if (TryParse(value, out var status))
+            return status;
+
+        notification.AddError($"Invalid status: {value}");
+        return TaskItemStatus.Todo;
+    }
+
+    public static TaskItemStatus ResolveRequired(string? value, Notification notification)
+    {
+        if (TryParse(value, out var status))
+            return status;
+
+        notification.AddError($"Invalid status: {value}");
+        return TaskItemStatus.Todo;
+    }
 }

@@ -1,4 +1,5 @@
 using TaskFlow.Api.Contracts.Responses;
+using TaskFlow.Application.Tasks;
 using TaskFlow.Domain;
 
 namespace TaskFlow.Api.Mapping;

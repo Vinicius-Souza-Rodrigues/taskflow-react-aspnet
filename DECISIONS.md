@@ -25,6 +25,120 @@
 
 ## Entradas
 
+### 2026-09-12 — Stack de Docker/Nginx/Compose reconstruída, com frontend integrado a um único Nginx
+
+**O que mudou:** depois da prática isolada de Dockerfile (backend e frontend, feita pelo
+usuário como exercício de DevOps), a stack completa foi reconstruída para incluir o
+frontend, que não existia ainda quando `docker-compose.yml`/`nginx/nginx.conf` foram
+escritos pela primeira vez (Fases 2-3).
+
+- **Um único Nginx, não dois**: em vez de o frontend ganhar seu próprio container com
+  Nginx interno (padrão mais "cloud native", útil pra quando o projeto usar Kubernetes),
+  optou-se por manter **um único** container Nginx no sistema, que agora acumula duas
+  funções nativas do próprio Nginx (não é gambiarra — são dois `location` no mesmo
+  `nginx.conf`): serve os arquivos estáticos do frontend (`location /`, com
+  `try_files $uri /index.html` para suportar rotas client-side no futuro) e faz reverse
+  proxy de `/api/` pro container da API. Motivo: o projeto é um laboratório solo e simples
+  (ver ADR — mesma postura anti-over-engineering já usada para rejeitar Bounded Contexts);
+  dois Nginx seria uma camada de indireção sem problema real a resolver hoje. Fica anotado
+  como candidato a revisitar na Fase 6, se/quando Kubernetes entrar em jogo (lá, "um
+  serviço = um container" volta a fazer mais sentido).
+- **`nginx/Dockerfile` agora é multi-stage** (contexto de build = raiz do repo): primeiro
+  estágio builda o frontend (`node:20`, `npm install` + `npm run build`), segundo estágio
+  (`nginx:alpine`) copia o `dist/` gerado para `/usr/share/nginx/html` e o `nginx.conf`
+  customizado — sem precisar de `CMD`/`ENTRYPOINT` próprio (a imagem oficial já sabe se
+  iniciar sozinha).
+- **`VITE_API_BASE_URL` vazio no build de produção**: o frontend, em dev (`npm run dev`),
+  chama a API direto em `http://localhost:8090` (valor de `frontend/.env`). Mas essa URL é
+  embutida pelo Vite em tempo de build — se o build containerizado usasse o mesmo valor, o
+  JS servido pelo Nginx chamaria a API diretamente, **ignorando o proxy** (o `/api/` do
+  Nginx ficaria morto, mesmo funcionando por acidente enquanto a porta 8090 também
+  estiver publicada). Corrigido fixando `ENV VITE_API_BASE_URL=""` só dentro do
+  `nginx/Dockerfile`, fazendo o bundle usar caminhos relativos (`/api/tasks`) que resolvem
+  pro mesmo host que serviu a página — ou seja, sempre passam pelo Nginx.
+  Validado via `docker exec taskflow-nginx grep -r localhost:8090 ...` (nenhum resultado).
+- **`frontend/Dockerfile`** (standalone, com seu próprio estágio Nginx) foi mantido como
+  está — é o exercício de aprendizado do usuário sobre multi-stage builds — mas não é mais
+  referenciado pelo `docker-compose.yml`; quem builda o frontend de verdade agora é o
+  `nginx/Dockerfile`.
+- **`.dockerignore` novo na raiz** (contexto do build do Nginx passou a ser o repo
+  inteiro) e em `frontend/` — evita enviar `node_modules`/`bin`/`obj`/`.git` como build
+  context, e evita que binários nativos específicos de Windows dentro de
+  `frontend/node_modules` (ex.: `@rolldown/binding-win32-x64-msvc`,
+  `@tailwindcss/oxide-win32-x64-msvc`) contaminem a imagem Linux caso alguém rode
+  `COPY . .` antes do `npm install` de dentro do container.
+- **CI (`ci.yml`) corrigido e ampliado**: o path do Dockerfile da API estava
+  desatualizado (`backend/docker/api.Dockerfile`, de quando o arquivo vivia numa subpasta;
+  hoje é `backend/Dockerfile`). Adicionado um job `frontend-build` (lint + `npm run
+  build`) rodando em paralelo ao job do backend, e o job de build de imagem agora também
+  builda `taskflow-nginx` (não só `taskflow-api`).
+- **Stack validada de ponta a ponta** via `docker compose up -d --build`: os 3 serviços
+  sobem, `GET`/`POST /api/tasks` respondem corretamente através do Nginx (porta 80), e o
+  HTML/JS do frontend é servido pelo mesmo Nginx.
+
+### 2026-09-11 — Backend reescrito em DDD tático completo (Domain Events + Application/CQRS via MediatR)
+
+**O que mudou:** a pedido explícito do usuário, para aprendizado, o backend ganhou as
+peças do DDD tático que faltavam:
+- **Domain Events**: `TaskItem` agora implementa `IAggregateRoot` e dispara
+  `TaskCreatedEvent`, `TaskStatusChangedEvent` (só quando o status realmente muda) e
+  `TaskDeletedEvent`. `IDomainEvent` é um marcador puro no Domain, sem nenhuma
+  dependência de framework.
+- **Novo projeto `TaskFlow.Application`**: Commands (`CreateTaskCommand`,
+  `UpdateTaskCommand`, `DeleteTaskCommand`) e Queries (`GetTaskByIdQuery`,
+  `ListTasksQuery`), cada um com seu Handler, usando **MediatR** (padrão de mercado
+  .NET para CQRS/mediator). `TaskStatusMapper` e a lógica de resolução de status
+  (antes no Controller) migraram pra cá.
+- **`DomainEventNotification<TEvent>` + `DomainEventDispatcher`**: a ponte entre o
+  `IDomainEvent` puro do Domain e o `INotification` do MediatR — só a Application
+  conhece essa ponte, o Domain nunca soube que MediatR existe.
+- **Event Handlers** (`TaskCreatedEventHandler` etc.): hoje só logam via `ILogger`, mas
+  provam a tubulação funcionando — confirmado nos logs do container após o deploy
+  (`Task 26 created: Teste evento criado`, etc.).
+- **`TasksController` virou fino de verdade**: não constrói mais value object nenhum,
+  não conhece `ITaskRepository` — só monta um Command/Query, chama `IMediator.Send` e
+  traduz o `Result`/`Result<T>` pra HTTP.
+- **`Result`/`Result<T>`**: substituem o acesso direto ao `Notification` na fronteira
+  Api↔Application, com um `ResultStatus` (Success/NotFound/ValidationFailed) — permite o
+  Controller decidir 200/400/404 sem `if` espalhado.
+
+**Bug corrigido durante a implementação:** o `TaskCreatedEvent` quase capturou `Id = 0`
+para sempre — a entidade só recebe o Id gerado pelo banco **depois** do
+`SaveChangesAsync`, e o evento (um `record`, imutável) não podia ser criado antes disso.
+Resolvido com `TaskItem.NotifyCreated()`, chamado pela Application só depois do save.
+
+**Por que:** pedido explícito do usuário ("pega meu backend e transforma ele inteiramente
+em DDD"), para fins de aprendizado — não porque o domínio precisasse. Isso está
+documentado como exceção deliberada no ADR (v1.1): a parte **estratégica** do DDD
+(Bounded Context, Aggregates com invariante cruzando entidades) continua fora, porque só
+existe uma entidade e um contexto — adicionar isso seria over-engineering sem propósito.
+
+**Alternativa descartada:** dispatcher de eventos feito à mão (sem lib) — descartado por
+esforço sem ganho real, MediatR já resolve isso. Domain Events implementando
+`MediatR.INotification` diretamente — descartado por acoplar o Domain a um framework
+externo.
+
+**Bloqueio de ambiente encontrado e contornado:** o Docker Desktop desta máquina
+apresentou um bug real e reproduzível: um arquivo chamado literalmente `dockerfile`
+(minúsculo, sem extensão) falhava no `docker build` com "failed to read dockerfile: open
+dockerfile: no such file or directory", mesmo com conteúdo válido e caminho absoluto —
+mas o **mesmo conteúdo exato**, só renomeado para `Dockerfile` (maiúsculo), buildou sem
+erro. Reforça a convenção já registrada antes (nome de arquivo `Dockerfile` ou
+`<algo>.Dockerfile`), agora com um caso real por trás.
+
+**Impacto:** `ARCHITECTURE.md` (novo módulo Application no diagrama, invariantes e
+fitness functions atualizadas), `ADR.md` v1.1 (MediatR na Stack Decidida, 3 novas
+Decisões Descartadas), `SDD.md` (módulo `TaskFlow.Application` documentado, Contratos
+entre Módulos atualizados). `backend/Dockerfile` (renomeado de `dockerfile`,
+mesmo conteúdo).
+
+**Como reverter:** reverter para o commit anterior à Fase de refactor DDD; ou, mais
+cirúrgico, remover `TaskFlow.Application`, devolver a lógica de Commands para dentro do
+Controller (como estava antes da Fase de SOLID/Notification pattern) e remover os
+pacotes MediatR.
+
+---
+
 ### 2026-09-10 — Polish do frontend: cursor sistêmico, tokens sem cor crua, tema claro/escuro
 
 **O que mudou:**
